@@ -1,1 +1,0 @@
-# Asl-word-detector
