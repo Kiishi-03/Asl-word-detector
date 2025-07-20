@@ -30,6 +30,7 @@ pycparser
 pyparsing
 python-dateutil
 scipy
+scikit-learn
 sentencepiece
 six
 sounddevice
