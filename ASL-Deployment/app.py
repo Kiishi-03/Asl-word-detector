@@ -1,128 +1,77 @@
-from flask import Flask, render_template, Response
+from flask import Flask, render_template, request, jsonify
 import pickle
 import cv2
 import mediapipe as mp
 import numpy as np
-import time  # We need the time library for our timer
+import base64 # To decode images sent from the browser
 
 app = Flask(__name__)
 
-# --- Load the Model and Setup MediaPipe ---
+# --- Load Model and Setup MediaPipe (This part is the same) ---
 try:
     with open('model.p', 'rb') as f:
         model = pickle.load(f)['model']
 except FileNotFoundError:
-    print("FATAL ERROR: model.p not found. Make sure it's in the same directory.")
+    print("FATAL ERROR: model.p not found.")
     exit()
 
 mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
-hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.3)
-# ---------------------------------------------
+hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5)
+# -------------------------------------------------------------
 
-# --- NEW: State Variables for Word Building ---
-sentence = ""  # The string to hold the typed words
-last_stable_prediction = ""  # The last character that was held steadily
-prediction_start_time = 0  # The timestamp when the last stable prediction began
-HOLD_DURATION = 3.0  # Hold for 3 seconds to type a letter (you can change this to 5.0)
-
-
-# ---------------------------------------------
-
-def generate_frames():
-    # Make our state variables accessible inside this function
-    global sentence, last_stable_prediction, prediction_start_time
-
-    cap = cv2.VideoCapture(0)
-    while True:
-        success, frame = cap.read()
-        if not success:
-            break
-        else:
-            # Your existing processing logic
-            data_aux, x_, y_ = [], [], []
-            H, W, _ = frame.shape
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = hands.process(frame_rgb)
-
-            predicted_character = ""  # Current frame's prediction
-
-            if results.multi_hand_landmarks:
-                # (Your landmark drawing and extraction code is the same)
-                for hand_landmarks in results.multi_hand_landmarks:
-                    mp_drawing.draw_landmarks(
-                        frame, hand_landmarks, mp_hands.HAND_CONNECTIONS,
-                        mp_drawing_styles.get_default_hand_landmarks_style(),
-                        mp_drawing_styles.get_default_hand_connections_style())
-                    for landmark in hand_landmarks.landmark:
-                        x_.append(landmark.x)
-                        y_.append(landmark.y)
-                    min_x, min_y = min(x_), min(y_)
-                    for landmark in hand_landmarks.landmark:
-                        data_aux.append(landmark.x - min_x)
-                        data_aux.append(landmark.y - min_y)
-
-                prediction = model.predict([np.asarray(data_aux)])
-                predicted_character = prediction[0]
-
-                x1, y1 = int(min(x_) * W) - 10, int(min(y_) * H) - 10
-                x2, y2 = int(max(x_) * W) + 10, int(max(y_) * H) + 10
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 0), 4)
-                cv2.putText(frame, predicted_character, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 0), 3,
-                            cv2.LINE_AA)
-
-            # --- NEW: Logic for Holding a Sign ---
-            current_time = time.time()
-            if predicted_character and predicted_character == last_stable_prediction:
-                # If the current prediction has been held long enough...
-                if current_time - prediction_start_time >= HOLD_DURATION:
-                    # Special handling for 'space', 'del', and 'nothing'
-                    if predicted_character == 'space':
-                        sentence += " "
-                    elif predicted_character == 'del':
-                        sentence = sentence[:-1]  # Delete last character
-                    elif predicted_character != 'nothing':
-                        sentence += predicted_character
-
-                    # Reset the timer to prevent immediate re-typing
-                    prediction_start_time = float('inf')
-            elif predicted_character and predicted_character != 'nothing':
-                # If a new, valid sign is detected, start the timer for it.
-                last_stable_prediction = predicted_character
-                prediction_start_time = current_time
-            else:
-                # If no hand or 'nothing' is detected, reset.
-                last_stable_prediction = ""
-                prediction_start_time = float('inf')
-            # ------------------------------------
-
-            # --- NEW: Display the Sentence on the Frame ---
-            # Draw a semi-transparent background for the text
-            cv2.rectangle(frame, (0, 0), (W, 40), (0, 0, 0), -1)
-            cv2.putText(frame, sentence, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-            # ---------------------------------------------
-
-            ret, buffer = cv2.imencode('.jpg', frame)
-            frame = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
-
+# This route serves our main HTML page.
 @app.route('/')
 def index():
-    # Reset the sentence every time the page is loaded
-    global sentence, last_stable_prediction, prediction_start_time
-    sentence = ""
-    last_stable_prediction = ""
-    prediction_start_time = float('inf')
     return render_template('index.html')
 
+# This is our new API endpoint. It only accepts POST requests.
+@app.route('/process_frame', methods=['POST'])
+def process_frame():
+    # Get the JSON data sent from the browser
+    json_data = request.get_json()
+    # Extract the image data, which is a Base64 encoded string
+    image_data = json_data['image_data'].split(',')[1]
+    
+    # Decode the Base64 string into bytes, then into a NumPy array, and finally into an OpenCV image
+    decoded_image = base64.b64decode(image_data)
+    np_arr = np.frombuffer(decoded_image, np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-@app.route('/video_feed')
-def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    # Initialize variables for this frame
+    predicted_character = ""
+    landmarks_for_json = []  # This list will hold landmark coordinates to send back
 
+    # Convert the image to RGB and process with MediaPipe
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(frame_rgb)
+
+    # If a hand is found...
+    if results.multi_hand_landmarks:
+        data_aux, x_, y_ = [], [], []
+        for hand_landmarks in results.multi_hand_landmarks:
+            # --- POPULATE THE LANDMARK LIST FOR THE FRONTEND ---
+            # Loop through all 21 landmarks
+            for i in range(len(hand_landmarks.landmark)):
+                landmark = hand_landmarks.landmark[i]
+                # Add the x and y coordinates to our list
+                landmarks_for_json.append({'x': landmark.x, 'y': landmark.y})
+                x_.append(landmark.x)
+                y_.append(landmark.y)
+            
+            # --- PREPARE DATA FOR THE MODEL (This logic is the same as before) ---
+            min_x, min_y = min(x_), min(y_)
+            for i in range(len(hand_landmarks.landmark)):
+                data_aux.append(hand_landmarks.landmark[i].x - min_x)
+                data_aux.append(hand_landmarks.landmark[i].y - min_y)
+        
+        # Only predict if we actually have data
+        if data_aux:
+            prediction = model.predict([np.asarray(data_aux)])
+            predicted_character = prediction[0]
+
+    # --- RETURN THE COMPLETE DATA PACKET ---
+    # We send back a JSON object with two keys: the prediction and the list of landmarks.
+    return jsonify({'prediction': predicted_character, 'landmarks': landmarks_for_json})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
