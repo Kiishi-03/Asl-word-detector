@@ -20,8 +20,7 @@ except FileNotFoundError:
     exit()
 
 mp_hands = mp.solutions.hands
-### CHANGE: Import the drawing utilities
-mp_drawing = mp.solutions.drawing_utils
+mp_drawing = mp.solutions.drawing_utils # To draw landmarks
 hands = mp_hands.Hands(
     static_image_mode=True,
     max_num_hands=1,
@@ -30,30 +29,32 @@ hands = mp_hands.Hands(
 )
 
 def process_image(image_data):
-    """Process base64 image data and return ASL prediction and annotated image"""
+    """Process base64 image, draw landmarks, and return prediction + annotated image"""
     prediction_result = "nothing"
-    annotated_image_b64 = image_data # Default to original image if no hand is found
-
+    
     try:
+        # Decode the image and prepare the frame
+        image_data_url = image_data
         if 'base64,' in image_data:
             image_data = image_data.split('base64,')[1]
         
         image_bytes = base64.b64decode(image_data)
         image = Image.open(BytesIO(image_bytes))
-        
         frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         
+        # This will be the image we send back. Start with the original.
+        annotated_frame = frame.copy()
+
+        # Process with MediaPipe
         data_aux, x_, y_ = [], [], []
-        H, W, _ = frame.shape
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
         results = hands.process(frame_rgb)
         
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
-                ### CHANGE: Draw landmarks on the image
+                # Draw the landmarks ON TOP of our copied frame
                 mp_drawing.draw_landmarks(
-                    frame,
+                    annotated_frame,
                     hand_landmarks,
                     mp_hands.HAND_CONNECTIONS,
                     mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=4),
@@ -71,16 +72,17 @@ def process_image(image_data):
             
             prediction = model.predict([np.asarray(data_aux)])
             prediction_result = prediction[0]
-
-            ### CHANGE: Encode the frame with landmarks back to base64
-            _, buffer = cv2.imencode('.jpg', frame)
-            annotated_image_b64 = "data:image/jpeg;base64," + base64.b64encode(buffer).decode('utf-8')
+        
+        # Encode the annotated frame (with or without new landmarks) to send back
+        _, buffer = cv2.imencode('.jpg', annotated_frame)
+        annotated_image_b64 = "data:image/jpeg;base64," + base64.b64encode(buffer).decode('utf-8')
 
         return prediction_result, annotated_image_b64
         
     except Exception as e:
         print(f"Error processing image: {e}")
-        return "error", annotated_image_b64
+        # On error, return the original image data URL
+        return "error", image_data_url
 
 @app.route('/')
 def index():
@@ -115,10 +117,10 @@ def index():
                 const [lastStablePrediction, setLastStablePrediction] = useState('');
                 const [predictionStartTime, setPredictionStartTime] = useState(0);
                 
-                // ### CHANGE: Add state to hold the annotated image from the backend
-                const [annotatedImage, setAnnotatedImage] = useState(null);
+                // ### CHANGE: State to hold the annotated image which will be our main display
+                const [displayImage, setDisplayImage] = useState(null);
 
-                const HOLD_DURATION = 5000; // 5 seconds
+                const HOLD_DURATION = 5000;
                 
                 useEffect(() => {
                     startCamera();
@@ -155,7 +157,7 @@ def index():
                 
                 const processVideo = () => {
                     const captureFrame = async () => {
-                        if (videoRef.current && isStreaming) {
+                        if (videoRef.current && videoRef.current.videoWidth > 0) {
                             const canvas = document.createElement('canvas');
                             const context = canvas.getContext('2d');
                             const video = videoRef.current;
@@ -175,14 +177,17 @@ def index():
                                 
                                 if (response.ok) {
                                     const result = await response.json();
-                                    // ### CHANGE: Update the annotated image state
-                                    setAnnotatedImage(result.image);
+                                    // ### CHANGE: Update the source for our main display image
+                                    setDisplayImage(result.image);
                                     handlePrediction(result.prediction);
                                 }
                             } catch (err) {
                                 console.error('Prediction error:', err);
                             }
                             
+                            requestAnimationFrame(captureFrame); // Use requestAnimationFrame for smoother loops
+                        } else {
+                            // If video isn't ready, try again shortly
                             setTimeout(captureFrame, 100);
                         }
                     };
@@ -231,105 +236,55 @@ def index():
                 }, React.createElement('div', {
                     className: 'bg-white bg-opacity-95 rounded-2xl p-8 shadow-2xl max-w-4xl w-full'
                 }, [
-                    React.createElement('h1', {
-                        key: 'title',
-                        className: 'text-4xl font-bold text-center text-gray-800 mb-6'
-                    }, '🤟 ASL to Text Translator'),
-                    
-                    error && React.createElement('div', {
-                        key: 'error',
-                        className: 'bg-red-50 border-2 border-red-200 rounded-lg p-4 mb-6'
-                    }, React.createElement('span', {
-                        className: 'text-red-700 font-medium'
-                    }, error)),
-                    
-                    React.createElement('div', {
-                        key: 'sentence-display',
-                        className: 'bg-gray-900 rounded-lg p-4 mb-4'
-                    }, React.createElement('div', {
-                        className: 'text-white text-xl font-mono min-h-8'
-                    }, sentence || "Start signing to type...")),
+                    React.createElement('h1', { key: 'title', className: 'text-4xl font-bold text-center text-gray-800 mb-6' }, '🤟 ASL to Text Translator'),
+                    error && React.createElement('div', { key: 'error', className: 'bg-red-50 border-2 border-red-200 rounded-lg p-4 mb-6' }, React.createElement('span', { className: 'text-red-700 font-medium' }, error)),
+                    React.createElement('div', { key: 'sentence-display', className: 'bg-gray-900 rounded-lg p-4 mb-4' }, React.createElement('div', { className: 'text-white text-xl font-mono min-h-8' }, sentence || "Start signing to type...")),
                     
                     React.createElement('div', {
                         key: 'video-container',
-                        className: 'relative inline-block rounded-lg overflow-hidden shadow-xl mb-6'
+                        className: 'relative inline-block rounded-lg overflow-hidden shadow-xl mb-6 bg-black w-[640px] h-[480px] flex items-center justify-center'
                     }, [
+                        // ### CHANGE: This video is now hidden. It's just a data source.
                         React.createElement('video', {
                             key: 'video',
                             ref: videoRef,
-                            className: 'block max-w-full h-auto',
-                            style: { transform: 'scaleX(-1)' },
+                            style: { display: 'none' },
                             muted: true,
                             playsInline: true
                         }),
                         
-                        // ### CHANGE: Add an img element to overlay the annotated image
-                        annotatedImage && React.createElement('img', {
-                            src: annotatedImage,
-                            className: 'absolute top-0 left-0 w-full h-full',
-                            style: { transform: 'scaleX(-1)', objectFit: 'cover' }
-                        }),
-                        
+                        // ### CHANGE: This image is now the main display. It shows the processed feed.
+                        displayImage ? 
+                            React.createElement('img', {
+                                key: 'display',
+                                src: displayImage,
+                                className: 'block w-full h-full',
+                                style: { transform: 'scaleX(-1)', objectFit: 'cover' }
+                            }) :
+                            React.createElement('div', { key: 'placeholder', className: 'text-white' }, 'Starting camera...'),
+
+                        // This overlay for the prediction text remains the same
                         isStreaming && currentSign && React.createElement('div', {
                             key: 'overlay',
                             className: 'absolute top-4 left-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg'
                         }, [
-                            React.createElement('div', {
-                                key: 'sign',
-                                className: 'text-lg font-bold'
-                            }, currentSign),
-                            
-                            holdProgress > 0 && React.createElement('div', {
-                                key: 'progress-container',
-                                className: 'mt-2'
-                            }, [
-                                React.createElement('div', {
-                                    key: 'progress-bg',
-                                    className: 'bg-gray-600 rounded-full h-2 w-32'
-                                }, React.createElement('div', {
-                                    className: 'bg-green-500 h-2 rounded-full transition-all duration-100',
-                                    style: { width: holdProgress + '%' }
-                                })),
-                                React.createElement('div', {
-                                    key: 'progress-text',
-                                    className: 'text-xs mt-1'
-                                }, 'Hold: ' + (holdProgress / 20).toFixed(1) + 's')
+                            React.createElement('div', { key: 'sign', className: 'text-lg font-bold' }, currentSign),
+                            holdProgress > 0 && React.createElement('div', { key: 'progress-container', className: 'mt-2' }, [
+                                React.createElement('div', { key: 'progress-bg', className: 'bg-gray-600 rounded-full h-2 w-32' }, React.createElement('div', { className: 'bg-green-500 h-2 rounded-full transition-all duration-100', style: { width: holdProgress + '%' } })),
+                                React.createElement('div', { key: 'progress-text', className: 'text-xs mt-1' }, 'Hold: ' + (holdProgress / 20).toFixed(1) + 's')
                             ])
                         ])
                     ]),
                     
-                    React.createElement('div', {
-                        key: 'controls',
-                        className: 'flex gap-4 justify-center mb-6'
-                    }, [
-                        React.createElement('button', {
-                            key: 'clear',
-                            onClick: () => setSentence(''),
-                            className: 'bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-medium transition-colors'
-                        }, 'Clear Text'),
-                        React.createElement('button', {
-                            key: 'refresh',
-                            onClick: () => window.location.reload(),
-                            className: 'bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition-colors'
-                        }, 'Refresh')
+                    React.createElement('div', { key: 'controls', className: 'flex gap-4 justify-center mb-6' }, [
+                        React.createElement('button', { key: 'clear', onClick: () => setSentence(''), className: 'bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-medium transition-colors' }, 'Clear Text'),
+                        React.createElement('button', { key: 'refresh', onClick: () => window.location.reload(), className: 'bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition-colors' }, 'Refresh')
                     ]),
                     
-                    React.createElement('div', {
-                        key: 'instructions',
-                        className: 'grid md:grid-cols-2 gap-6 text-sm'
-                    }, [
-                        React.createElement('div', {
-                            key: 'how-to',
-                            className: 'bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg'
-                        }, [
-                            React.createElement('h3', {
-                                key: 'title1',
-                                className: 'text-blue-700 font-bold text-lg mb-3'
-                            }, '📝 How to Use:'),
-                            React.createElement('ul', {
-                                key: 'list1',
-                                className: 'space-y-2 text-blue-800'
-                            }, [
+                    React.createElement('div', { key: 'instructions', className: 'grid md:grid-cols-2 gap-6 text-sm' }, [
+                        React.createElement('div', { key: 'how-to', className: 'bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg' }, [
+                            React.createElement('h3', { key: 'title1', className: 'text-blue-700 font-bold text-lg mb-3' }, '📝 How to Use:'),
+                            React.createElement('ul', { key: 'list1', className: 'space-y-2 text-blue-800' }, [
                                 React.createElement('li', {key: 'l1'}, '• Make ASL signs in front of your camera'),
                                 React.createElement('li', {key: 'l2'}, '• Hold each sign steady for 5 seconds'),
                                 React.createElement('li', {key: 'l3'}, '• Watch the green progress bar'),
@@ -337,18 +292,9 @@ def index():
                                 React.createElement('li', {key: 'l5'}, '• Your sentence builds at the top')
                             ])
                         ]),
-                        React.createElement('div', {
-                            key: 'tips',
-                            className: 'bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg'
-                        }, [
-                            React.createElement('h3', {
-                                key: 'title2',
-                                className: 'text-green-700 font-bold text-lg mb-3'
-                            }, '🎯 Tips:'),
-                            React.createElement('ul', {
-                                key: 'list2',
-                                className: 'space-y-2 text-green-800'
-                            }, [
+                        React.createElement('div', { key: 'tips', className: 'bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg' }, [
+                            React.createElement('h3', { key: 'title2', className: 'text-green-700 font-bold text-lg mb-3' }, '🎯 Tips:'),
+                            React.createElement('ul', { key: 'list2', className: 'space-y-2 text-green-800' }, [
                                 React.createElement('li', {key: 't1'}, '• Keep your hand clearly visible'),
                                 React.createElement('li', {key: 't2'}, '• Use good lighting'),
                                 React.createElement('li', {key: 't3'}, '• Hold signs very steady'),
@@ -369,16 +315,12 @@ def index():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """API endpoint to process image and return ASL prediction and annotated image"""
     try:
         data = request.get_json()
         if not data or 'image' not in data:
             return jsonify({'error': 'No image data provided'}), 400
         
-        # ### CHANGE: Receive both prediction and image from the processing function
         prediction, annotated_image = process_image(data['image'])
-        
-        # ### CHANGE: Return both in the JSON response
         return jsonify({'prediction': prediction, 'image': annotated_image})
         
     except Exception as e:
@@ -387,7 +329,6 @@ def predict():
 
 @app.route('/health')
 def health():
-    """Health check endpoint"""
     return jsonify({'status': 'healthy', 'model_loaded': True})
 
 if __name__ == '__main__':
