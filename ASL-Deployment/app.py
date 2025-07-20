@@ -3,11 +3,11 @@ import pickle
 import cv2
 import mediapipe as mp
 import numpy as np
-import base64 # To decode images sent from the browser
+import base64
 
 app = Flask(__name__)
 
-# --- Load Model and Setup MediaPipe (This part is the same) ---
+# --- Load Model and Setup MediaPipe ---
 try:
     with open('model.p', 'rb') as f:
         model = pickle.load(f)['model']
@@ -16,61 +16,58 @@ except FileNotFoundError:
     exit()
 
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5)
-# -------------------------------------------------------------
+### NEW: Make MediaPipe less picky to improve detection on compressed video ###
+hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.3)
+# ------------------------------------
 
-# This route serves our main HTML page.
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# This is our new API endpoint. It only accepts POST requests.
 @app.route('/process_frame', methods=['POST'])
 def process_frame():
-    # Get the JSON data sent from the browser
+    ### NEW: Add a log to show that the server received a request ###
+    print("Received a frame for processing...")
+    
     json_data = request.get_json()
-    # Extract the image data, which is a Base64 encoded string
     image_data = json_data['image_data'].split(',')[1]
     
-    # Decode the Base64 string into bytes, then into a NumPy array, and finally into an OpenCV image
     decoded_image = base64.b64decode(image_data)
     np_arr = np.frombuffer(decoded_image, np.uint8)
     frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-    # Initialize variables for this frame
     predicted_character = ""
-    landmarks_for_json = []  # This list will hold landmark coordinates to send back
+    landmarks_for_json = []
 
-    # Convert the image to RGB and process with MediaPipe
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = hands.process(frame_rgb)
-
-    # If a hand is found...
     if results.multi_hand_landmarks:
+        ### NEW: Add a log to show that a hand was FOUND ###
+        print("SUCCESS: Hand detected in frame!")
+        
         data_aux, x_, y_ = [], [], []
         for hand_landmarks in results.multi_hand_landmarks:
-            # --- POPULATE THE LANDMARK LIST FOR THE FRONTEND ---
-            # Loop through all 21 landmarks
             for i in range(len(hand_landmarks.landmark)):
                 landmark = hand_landmarks.landmark[i]
-                # Add the x and y coordinates to our list
                 landmarks_for_json.append({'x': landmark.x, 'y': landmark.y})
                 x_.append(landmark.x)
                 y_.append(landmark.y)
-            
-            # --- PREPARE DATA FOR THE MODEL (This logic is the same as before) ---
+
             min_x, min_y = min(x_), min(y_)
             for i in range(len(hand_landmarks.landmark)):
                 data_aux.append(hand_landmarks.landmark[i].x - min_x)
                 data_aux.append(hand_landmarks.landmark[i].y - min_y)
         
-        # Only predict if we actually have data
         if data_aux:
             prediction = model.predict([np.asarray(data_aux)])
             predicted_character = prediction[0]
+            ### NEW: Add a log to show the prediction ###
+            print(f"Prediction result: {predicted_character}")
 
-    # --- RETURN THE COMPLETE DATA PACKET ---
-    # We send back a JSON object with two keys: the prediction and the list of landmarks.
+    else:
+        ### NEW: Add a log for when NO hand is found ###
+        print("INFO: No hand detected in this frame.")
+
     return jsonify({'prediction': predicted_character, 'landmarks': landmarks_for_json})
 
 if __name__ == '__main__':
