@@ -1,3 +1,4 @@
+      
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,8 +7,17 @@
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #2c2c2c; color: white; margin: 0; }
         #container { position: relative; margin-top: 20px; border: 5px solid #555; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius: 8px; overflow: hidden; }
-        video { display: block; }
+        
+        /* --- THIS FLIPS THE VIDEO AND CANVAS TO ACT LIKE A MIRROR --- */
+        video, canvas {
+            display: block;
+            transform: scaleX(-1);
+        }
+        /* ------------------------------------------------------------- */
+
+        /* The canvas is positioned directly on top of the video */
         canvas { position: absolute; top: 0; left: 0; }
+
         #sentence-box { margin-top: 20px; font-size: 2em; font-weight: bold; background-color: #444; padding: 10px 20px; border-radius: 8px; min-height: 50px; text-align: center;}
         #loading { font-size: 1.5em; }
     </style>
@@ -22,9 +32,10 @@
     </div>
     
     <div id="sentence-box" aria-live="polite"></div>
-    <div id="loading">Starting camera...</div>
+    <div id="loading">Requesting camera access...</div>
 
     <script>
+        // Get references to our HTML elements
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const context = canvas.getContext('2d');
@@ -37,58 +48,96 @@
         let predictionStartTime = 0;
         const HOLD_DURATION = 3000; // 3 seconds in milliseconds
 
-        // Start the camera
+        // --- THIS IS THE LIST OF CONNECTIONS TO DRAW THE SKELETON ---
+        const HAND_CONNECTIONS = [
+            [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
+            [0, 5], [5, 6], [6, 7], [7, 8], // Index Finger
+            [5, 9], [9, 10], [10, 11], [11, 12], // Middle Finger
+            [9, 13], [13, 14], [14, 15], [15, 16], // Ring Finger
+            [13, 17], [0, 17], [17, 18], [18, 19], [19, 20] // Pinky
+        ];
+        // -----------------------------------------------------------
+
+        // --- ASK THE USER FOR CAMERA ACCESS ---
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => {
                 video.srcObject = stream;
                 loadingMessage.style.display = 'none';
-                // Start processing frames every 500ms (2 times per second)
-                setInterval(processFrame, 500);
+                // Start the main loop to process frames
+                setInterval(processFrame, 200); // Process 5 times per second
             })
             .catch(err => {
-                console.error("Error accessing camera: ", err);
-                loadingMessage.textContent = "Error: Could not access camera.";
+                // Handle errors if the user denies camera access
+                loadingMessage.textContent = "Error: Camera access was denied.";
+                console.error("Camera Error:", err);
             });
 
+        // --- THIS IS THE MAIN FUNCTION THAT RUNS REPEATEDLY ---
         async function processFrame() {
-            // Draw the current video frame to the canvas
+            // 1. Draw the current video frame onto the hidden canvas
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            // Get the image data from the canvas
+            // 2. Get the image from the canvas as a Base64 encoded string
             const imageData = canvas.toDataURL('image/jpeg');
 
             try {
-                // Send the image data to the Flask server
+                // 3. Send this image data to our Flask server
                 const response = await fetch('/process_frame', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ image_data: imageData })
                 });
 
+                // 4. Get the result back from the server
                 const data = await response.json();
-                const predictedChar = data.prediction;
                 
-                // Update the word-building logic
-                updateSentence(predictedChar);
+                // 5. Use the data to draw landmarks and update the sentence
+                drawLandmarks(data.landmarks);
+                updateSentence(data.prediction);
 
             } catch (error) {
                 console.error('Error processing frame:', error);
             }
         }
+        
+        // --- THIS NEW FUNCTION DRAWS THE LANDMARKS ON THE CANVAS ---
+        function drawLandmarks(landmarks) {
+            // First, clear any old drawings from the canvas
+            context.clearRect(0, 0, canvas.width, canvas.height); 
+            if (!landmarks || landmarks.length === 0) return;
 
+            // Draw the connecting lines
+            context.strokeStyle = '#00FF00'; // Green lines
+            context.lineWidth = 5;
+            HAND_CONNECTIONS.forEach(conn => {
+                const start = landmarks[conn[0]];
+                const end = landmarks[conn[1]];
+                if (start && end) {
+                    context.beginPath();
+                    context.moveTo(start.x * canvas.width, start.y * canvas.height);
+                    context.lineTo(end.x * canvas.width, end.y * canvas.height);
+                    context.stroke();
+                }
+            });
+
+            // Draw the landmark dots on top of the lines
+            context.fillStyle = '#FF0000'; // Red dots
+            landmarks.forEach(lm => {
+                context.beginPath();
+                context.arc(lm.x * canvas.width, lm.y * canvas.height, 5, 0, 2 * Math.PI);
+                context.fill();
+            });
+        }
+        // -------------------------------------------------------------
+
+        // --- THIS FUNCTION BUILDS THE SENTENCE (SAME LOGIC AS BEFORE) ---
         function updateSentence(prediction) {
             const currentTime = Date.now();
-
             if (prediction && prediction === lastStablePrediction) {
                 if (currentTime - predictionStartTime >= HOLD_DURATION) {
-                    if (prediction === 'space') {
-                        sentence += " ";
-                    } else if (prediction === 'del') {
-                        sentence = sentence.slice(0, -1);
-                    } else if (prediction !== 'nothing') {
-                        sentence += prediction;
-                    }
-                    // Reset timer to prevent re-typing
-                    predictionStartTime = Infinity; 
+                    if (prediction === 'space') sentence += " ";
+                    else if (prediction === 'del') sentence = sentence.slice(0, -1);
+                    else if (prediction !== 'nothing') sentence += prediction;
+                    predictionStartTime = Infinity;
                 }
             } else if (prediction && prediction !== 'nothing') {
                 lastStablePrediction = prediction;
@@ -97,9 +146,10 @@
                 lastStablePrediction = "";
                 predictionStartTime = Infinity;
             }
-
-            sentenceBox.textContent = sentence || " "; // Display a space if empty for layout
+            sentenceBox.textContent = sentence || " "; // Use a space if the sentence is empty
         }
     </script>
 </body>
 </html>
+
+    
