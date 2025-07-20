@@ -20,6 +20,8 @@ except FileNotFoundError:
     exit()
 
 mp_hands = mp.solutions.hands
+### CHANGE: Import the drawing utilities
+mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
     static_image_mode=True,
     max_num_hands=1,
@@ -28,20 +30,19 @@ hands = mp_hands.Hands(
 )
 
 def process_image(image_data):
-    """Process base64 image data and return ASL prediction"""
+    """Process base64 image data and return ASL prediction and annotated image"""
+    prediction_result = "nothing"
+    annotated_image_b64 = image_data # Default to original image if no hand is found
+
     try:
-        # Remove data URL prefix if present
         if 'base64,' in image_data:
             image_data = image_data.split('base64,')[1]
         
-        # Decode base64 image
         image_bytes = base64.b64decode(image_data)
         image = Image.open(BytesIO(image_bytes))
         
-        # Convert PIL image to OpenCV format
         frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         
-        # Process with MediaPipe
         data_aux, x_, y_ = [], [], []
         H, W, _ = frame.shape
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -50,30 +51,39 @@ def process_image(image_data):
         
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
-                # Extract landmark coordinates
+                ### CHANGE: Draw landmarks on the image
+                mp_drawing.draw_landmarks(
+                    frame,
+                    hand_landmarks,
+                    mp_hands.HAND_CONNECTIONS,
+                    mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=4),
+                    mp_drawing.DrawingSpec(color=(250, 44, 250), thickness=2, circle_radius=2)
+                )
+
                 for landmark in hand_landmarks.landmark:
                     x_.append(landmark.x)
                     y_.append(landmark.y)
                 
-                # Normalize coordinates
                 min_x, min_y = min(x_), min(y_)
                 for landmark in hand_landmarks.landmark:
                     data_aux.append(landmark.x - min_x)
                     data_aux.append(landmark.y - min_y)
             
-            # Make prediction
             prediction = model.predict([np.asarray(data_aux)])
-            return prediction[0]
-        
-        return "nothing"
+            prediction_result = prediction[0]
+
+            ### CHANGE: Encode the frame with landmarks back to base64
+            _, buffer = cv2.imencode('.jpg', frame)
+            annotated_image_b64 = "data:image/jpeg;base64," + base64.b64encode(buffer).decode('utf-8')
+
+        return prediction_result, annotated_image_b64
         
     except Exception as e:
         print(f"Error processing image: {e}")
-        return "error"
+        return "error", annotated_image_b64
 
 @app.route('/')
 def index():
-    # Serve the React component as HTML
     html_template = '''
     <!DOCTYPE html>
     <html lang="en">
@@ -105,6 +115,9 @@ def index():
                 const [lastStablePrediction, setLastStablePrediction] = useState('');
                 const [predictionStartTime, setPredictionStartTime] = useState(0);
                 
+                // ### CHANGE: Add state to hold the annotated image from the backend
+                const [annotatedImage, setAnnotatedImage] = useState(null);
+
                 const HOLD_DURATION = 5000; // 5 seconds
                 
                 useEffect(() => {
@@ -162,13 +175,15 @@ def index():
                                 
                                 if (response.ok) {
                                     const result = await response.json();
+                                    // ### CHANGE: Update the annotated image state
+                                    setAnnotatedImage(result.image);
                                     handlePrediction(result.prediction);
                                 }
                             } catch (err) {
                                 console.error('Prediction error:', err);
                             }
                             
-                            setTimeout(captureFrame, 100); // Process every 100ms
+                            setTimeout(captureFrame, 100);
                         }
                     };
                     
@@ -246,6 +261,13 @@ def index():
                             style: { transform: 'scaleX(-1)' },
                             muted: true,
                             playsInline: true
+                        }),
+                        
+                        // ### CHANGE: Add an img element to overlay the annotated image
+                        annotatedImage && React.createElement('img', {
+                            src: annotatedImage,
+                            className: 'absolute top-0 left-0 w-full h-full',
+                            style: { transform: 'scaleX(-1)', objectFit: 'cover' }
                         }),
                         
                         isStreaming && currentSign && React.createElement('div', {
@@ -347,14 +369,17 @@ def index():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """API endpoint to process image and return ASL prediction"""
+    """API endpoint to process image and return ASL prediction and annotated image"""
     try:
         data = request.get_json()
         if not data or 'image' not in data:
             return jsonify({'error': 'No image data provided'}), 400
         
-        prediction = process_image(data['image'])
-        return jsonify({'prediction': prediction})
+        # ### CHANGE: Receive both prediction and image from the processing function
+        prediction, annotated_image = process_image(data['image'])
+        
+        # ### CHANGE: Return both in the JSON response
+        return jsonify({'prediction': prediction, 'image': annotated_image})
         
     except Exception as e:
         print(f"Prediction error: {e}")
