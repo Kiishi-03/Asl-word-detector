@@ -3,371 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASL Recognition - Real-time Sign Language Detection</title>
+    <title>ASL to Text Translator</title>
     <style>
-        * {
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Arial', sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
-            color: white;
-            padding: 20px;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-
-        .header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
-        }
-
-        .main-container {
-            display: flex;
-            gap: 30px;
-            max-width: 1200px;
-            width: 100%;
-            flex-wrap: wrap;
             justify-content: center;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 90vw;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .video-container {
-            background: rgba(255, 255, 255, 0.1);
+            position: relative;
+            display: inline-block;
             border-radius: 15px;
-            padding: 20px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-
-        .video-stream {
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            max-width: 640px;
-            width: 100%;
-            height: auto;
-        }
-
-        .prediction-panel {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 30px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            min-width: 300px;
-            height: fit-content;
-        }
-
-        .prediction-panel h2 {
-            margin-bottom: 20px;
-            font-size: 1.5rem;
-            text-align: center;
-        }
-
-        .current-prediction {
-            background: rgba(0, 255, 0, 0.2);
-            border: 2px solid rgba(0, 255, 0, 0.5);
-            border-radius: 10px;
-            padding: 20px;
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .prediction-char {
-            font-size: 3rem;
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #00ff00;
-            text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
-        }
-
-        .confidence-bar {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-            height: 20px;
-            margin: 10px 0;
             overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            margin: 20px 0;
         }
 
-        .confidence-fill {
-            background: linear-gradient(90deg, #ff6b6b, #feca57, #48ca48);
-            height: 100%;
-            border-radius: 10px;
-            transition: width 0.3s ease;
-            width: 0%;
+        #video-feed {
+            max-width: 100%;
+            height: auto;
+            display: block;
         }
 
-        .confidence-text {
-            text-align: center;
-            margin-top: 5px;
-            font-size: 0.9rem;
+        .instructions {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 0 10px 10px 0;
+            text-align: left;
         }
 
-        .sentence-display {
-            background: rgba(255, 255, 255, 0.1);
+        .instructions h3 {
+            color: #667eea;
+            margin-top: 0;
+        }
+
+        .instructions ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .instructions li {
+            margin: 5px 0;
+        }
+
+        .status {
+            background: #e8f5e8;
+            border: 2px solid #4caf50;
             border-radius: 10px;
             padding: 15px;
-            margin-top: 20px;
-            min-height: 60px;
-        }
-
-        .sentence-display h3 {
-            margin-bottom: 10px;
-            font-size: 1.1rem;
-        }
-
-        .sentence-text {
-            font-size: 1.2rem;
+            margin: 20px 0;
+            color: #2e7d32;
             font-weight: bold;
-            color: #fff;
         }
 
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-top: 20px;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-
-        .btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(10px);
-        }
-
-        .btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-        }
-
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-            background: #48ca48;
-            box-shadow: 0 0 10px rgba(72, 202, 72, 0.6);
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-
-        .info-panel {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 20px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            margin-top: 20px;
-            max-width: 600px;
-            width: 100%;
-        }
-
-        .info-panel h3 {
-            margin-bottom: 15px;
-            color: #feca57;
-        }
-
-        .info-panel ul {
-            list-style-type: none;
-            padding-left: 0;
-        }
-
-        .info-panel li {
-            margin-bottom: 8px;
-            padding-left: 20px;
-            position: relative;
-        }
-
-        .info-panel li::before {
-            content: "→";
-            position: absolute;
-            left: 0;
-            color: #48ca48;
+        .error {
+            background: #ffebee;
+            border: 2px solid #f44336;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #c62828;
             font-weight: bold;
         }
 
         @media (max-width: 768px) {
-            .main-container {
-                flex-direction: column;
-                align-items: center;
+            .container {
+                padding: 20px;
+                margin: 10px;
             }
             
-            .header h1 {
-                font-size: 2rem;
-            }
-            
-            .prediction-panel {
-                min-width: unset;
-                width: 100%;
-                max-width: 640px;
+            h1 {
+                font-size: 2em;
             }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🤟 ASL Recognition System</h1>
-        <p>Real-time American Sign Language Detection using MediaPipe</p>
-    </div>
+    <div class="container">
+        <h1>🤟 ASL to Text Translator</h1>
+        
+        <div class="status">
+            ✅ System Ready - Hold ASL signs for 5 seconds to type
+        </div>
 
-    <div class="main-container">
         <div class="video-container">
-            <img class="video-stream" src="{{ url_for('video_feed') }}" alt="Video Stream">
+            <img id="video-feed" src="{{ url_for('video_feed') }}" alt="ASL Video Feed">
         </div>
 
-        <div class="prediction-panel">
-            <h2><span class="status-indicator"></span>Live Prediction</h2>
-            
-            <div class="current-prediction">
-                <div class="prediction-char" id="predicted-char">-</div>
-                <div class="confidence-bar">
-                    <div class="confidence-fill" id="confidence-fill"></div>
-                </div>
-                <div class="confidence-text" id="confidence-text">Confidence: 0%</div>
-            </div>
-
-            <div class="sentence-display">
-                <h3>Detected Sentence:</h3>
-                <div class="sentence-text" id="sentence-text"></div>
-            </div>
-
-            <div class="controls">
-                <button class="btn" onclick="addToSentence()">Add Letter</button>
-                <button class="btn" onclick="addSpace()">Add Space</button>
-                <button class="btn" onclick="clearSentence()">Clear</button>
-                <button class="btn" onclick="undoLast()">Undo</button>
-            </div>
+        <div class="instructions">
+            <h3>📝 How to Use:</h3>
+            <ul>
+                <li><strong>Sign Detection:</strong> Make ASL signs in front of your camera</li>
+                <li><strong>Hold Time:</strong> Hold each sign steady for 5 seconds to register</li>
+                <li><strong>Special Commands:</strong>
+                    <ul>
+                        <li>Sign "space" - Adds a space between words</li>
+                        <li>Sign "del" - Deletes the last character</li>
+                    </ul>
+                </li>
+                <li><strong>Text Display:</strong> Your typed sentence appears at the top of the video</li>
+                <li><strong>Reset:</strong> Refresh the page to clear the sentence</li>
+            </ul>
         </div>
-    </div>
 
-    <div class="info-panel">
-        <h3>How to Use:</h3>
-        <ul>
-            <li>Position your hand clearly in front of the camera</li>
-            <li>Make sure your hand is well-lit and visible</li>
-            <li>Hold each sign steady for better recognition</li>
-            <li>Use the controls to build sentences from detected letters</li>
-            <li>The system works best with clear, distinct hand positions</li>
-        </ul>
+        <div class="instructions">
+            <h3>🔧 Troubleshooting:</h3>
+            <ul>
+                <li>Make sure your camera is working and properly connected</li>
+                <li>Ensure good lighting for better hand detection</li>
+                <li>Keep your hand clearly visible within the camera frame</li>
+                <li>If the video doesn't load, check browser permissions for camera access</li>
+            </ul>
+        </div>
     </div>
 
     <script>
-        let currentSentence = [];
-        let lastPrediction = '';
+        // Add error handling for the video feed
+        document.getElementById('video-feed').onerror = function() {
+            this.style.display = 'none';
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.innerHTML = '❌ Camera Error: Unable to access video feed. Please check camera permissions and refresh.';
+            document.querySelector('.video-container').appendChild(errorDiv);
+        };
 
-        // Update predictions from server
-        function updatePrediction() {
-            fetch('/get_prediction')
-                .then(response => response.json())
-                .then(data => {
-                    const predictionChar = document.getElementById('predicted-char');
-                    const confidenceFill = document.getElementById('confidence-fill');
-                    const confidenceText = document.getElementById('confidence-text');
-                    
-                    if (data.prediction && data.prediction !== 'No hand detected' && !data.prediction.includes('error')) {
-                        predictionChar.textContent = data.prediction;
-                        lastPrediction = data.prediction;
-                    } else {
-                        predictionChar.textContent = '-';
-                    }
-                    
-                    const confidence = Math.round(data.confidence * 100);
-                    confidenceFill.style.width = confidence + '%';
-                    confidenceText.textContent = `Confidence: ${confidence}%`;
-                })
-                .catch(error => {
-                    console.error('Error fetching prediction:', error);
-                });
-        }
-
-        // Control functions
-        function addToSentence() {
-            if (lastPrediction && lastPrediction !== '-' && lastPrediction !== 'No hand detected') {
-                currentSentence.push(lastPrediction);
-                updateSentenceDisplay();
-            }
-        }
-
-        function addSpace() {
-            currentSentence.push(' ');
-            updateSentenceDisplay();
-        }
-
-        function clearSentence() {
-            currentSentence = [];
-            updateSentenceDisplay();
-        }
-
-        function undoLast() {
-            if (currentSentence.length > 0) {
-                currentSentence.pop();
-                updateSentenceDisplay();
-            }
-        }
-
-        function updateSentenceDisplay() {
-            const sentenceText = document.getElementById('sentence-text');
-            sentenceText.textContent = currentSentence.join('') || 'Start signing to build a sentence...';
-        }
-
-        // Keyboard shortcuts
-        document.addEventListener('keydown', function(event) {
-            switch(event.key) {
-                case ' ':
-                    event.preventDefault();
-                    addSpace();
-                    break;
-                case 'Enter':
-                    event.preventDefault();
-                    addToSentence();
-                    break;
-                case 'Backspace':
-                    event.preventDefault();
-                    undoLast();
-                    break;
-                case 'Escape':
-                    event.preventDefault();
-                    clearSentence();
-                    break;
-            }
-        });
-
-        // Initialize
-        updateSentenceDisplay();
-        
-        // Update predictions every 100ms for smooth real-time experience
-        setInterval(updatePrediction, 100);
+        // Refresh the page every 30 minutes to prevent memory issues
+        setTimeout(() => {
+            window.location.reload();
+        }, 30 * 60 * 1000);
     </script>
 </body>
 </html>
