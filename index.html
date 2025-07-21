@@ -164,6 +164,12 @@
     </div>
 
     <script>
+        // Configuration - UPDATE THIS WITH YOUR API URL
+        // If using Gradio on Colab: https://[random-string].gradio.live/api/predict
+        // If using Hugging Face: https://[username]-[space-name].hf.space/api/predict
+        // If using ngrok: https://[random-string].ngrok.io/predict
+        const API_URL = 'YOUR_API_URL_HERE';
+        
         let camera = null;
         let isRunning = false;
         const videoElement = document.getElementById('video');
@@ -175,8 +181,10 @@
         const stopBtn = document.getElementById('stopBtn');
         const letterGrid = document.getElementById('letterGrid');
         
-        // Create letter grid
-        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+        // Create letter grid with all 29 classes
+        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
+                        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 
+                        'del', 'nothing', 'space'];
         letters.forEach(letter => {
             const div = document.createElement('div');
             div.className = 'letter-box';
@@ -199,11 +207,11 @@
             minTrackingConfidence: 0.5
         });
         
-        // Simple demo classifier
-        function classifyHandLandmarks(landmarks) {
+        // Classifier that uses your real model via API
+        async function classifyHandLandmarks(landmarks) {
             if (!landmarks || landmarks.length === 0) return '-';
             
-            // Extract normalized coordinates
+            // Extract normalized coordinates (same as your Python code)
             const x_ = landmarks.map(l => l.x);
             const y_ = landmarks.map(l => l.y);
             
@@ -217,35 +225,48 @@
                 normalizedLandmarks.push(landmark.y - minY);
             });
             
-            // Simple demo classification based on hand pose
-            // In a real implementation, you would use your trained model here
-            
-            // Thumb position relative to other fingers
+            try {
+                // Call your Python model API
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        landmarks: normalizedLandmarks
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    return result.prediction;
+                } else {
+                    console.error('Prediction error:', result.error);
+                    return 'Error';
+                }
+            } catch (error) {
+                console.error('API call failed:', error);
+                // Fallback to simple demo classifier if API is down
+                return demoClassifier(landmarks);
+            }
+        }
+        
+        // Backup demo classifier (in case API is offline)
+        function demoClassifier(landmarks) {
             const thumbTip = landmarks[4];
             const indexTip = landmarks[8];
             const middleTip = landmarks[12];
-            const ringTip = landmarks[16];
-            const pinkyTip = landmarks[20];
             
-            // Simple heuristics for demo purposes
             const thumbUp = thumbTip.y < landmarks[3].y;
             const indexUp = indexTip.y < landmarks[6].y;
             const middleUp = middleTip.y < landmarks[10].y;
-            const ringUp = ringTip.y < landmarks[14].y;
-            const pinkyUp = pinkyTip.y < landmarks[18].y;
             
-            // Count raised fingers
-            const raisedFingers = [thumbUp, indexUp, middleUp, ringUp, pinkyUp].filter(f => f).length;
+            const raisedFingers = [thumbUp, indexUp, middleUp].filter(f => f).length;
             
-            // Demo classification logic
             if (raisedFingers === 0) return 'A';
             if (raisedFingers === 1 && indexUp) return 'D';
-            if (raisedFingers === 2 && indexUp && middleUp) return 'V';
-            if (raisedFingers === 3 && !thumbUp && !pinkyUp) return 'W';
-            if (raisedFingers === 5) return '5';
-            if (thumbUp && !indexUp && !middleUp && !ringUp && !pinkyUp) return 'B';
-            
-            // More sophisticated classification would go here
+            if (raisedFingers === 2) return 'V';
             return 'X';
         }
         
@@ -276,22 +297,25 @@
                 ctx.strokeRect(minX - 10, minY - 10, maxX - minX + 20, maxY - minY + 20);
                 
                 // Classify and display prediction
-                const prediction = classifyHandLandmarks(landmarks);
-                predictionElement.textContent = prediction;
-                
-                // Update letter grid
-                document.querySelectorAll('.letter-box').forEach(box => {
-                    box.classList.remove('detected');
+                classifyHandLandmarks(landmarks).then(prediction => {
+                    predictionElement.textContent = prediction;
+                    
+                    // Update letter grid - now with all 29 classes
+                    document.querySelectorAll('.letter-box').forEach(box => {
+                        box.classList.remove('detected');
+                    });
+                    if (prediction !== '-' && prediction !== 'Error') {
+                        const detectedBox = document.getElementById(`letter-${prediction}`);
+                        if (detectedBox) {
+                            detectedBox.classList.add('detected');
+                        }
+                    }
+                    
+                    // Draw prediction on canvas
+                    ctx.font = '48px Arial';
+                    ctx.fillStyle = '#000000';
+                    ctx.fillText(prediction, minX, minY - 20);
                 });
-                const detectedBox = document.getElementById(`letter-${prediction}`);
-                if (detectedBox) {
-                    detectedBox.classList.add('detected');
-                }
-                
-                // Draw prediction on canvas
-                ctx.font = '48px Arial';
-                ctx.fillStyle = '#000000';
-                ctx.fillText(prediction, minX, minY - 20);
             } else {
                 predictionElement.textContent = '-';
                 document.querySelectorAll('.letter-box').forEach(box => {
@@ -351,6 +375,12 @@
         // Enable start button when ready
         statusElement.textContent = 'Ready! Click "Start Camera" to begin.';
         startBtn.disabled = false;
+        
+        // Check if API URL is configured
+        if (API_URL === 'YOUR_API_URL_HERE') {
+            statusElement.textContent = 'Please configure API_URL in the code!';
+            statusElement.style.color = '#ff6b6b';
+        }
     </script>
 </body>
 </html>
