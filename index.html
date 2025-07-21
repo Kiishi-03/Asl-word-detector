@@ -3,159 +3,354 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASL to Text Translator</title>
+    <title>ASL Sign Language Detector</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1620248257/drawing_utils.js"></script>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            background-color: #1a1a1a;
+            color: white;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            min-height: 100vh;
         }
-
+        
         .container {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 30px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            width: 100%;
+            padding: 20px;
             text-align: center;
-            max-width: 90vw;
         }
-
+        
         h1 {
-            color: #333;
-            margin-bottom: 20px;
-            font-size: 2.5em;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+            color: #4CAF50;
+            margin-bottom: 10px;
         }
-
+        
         .video-container {
             position: relative;
             display: inline-block;
-            border-radius: 15px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
             margin: 20px 0;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }
-
-        #video-feed {
+        
+        video {
+            display: none;
+        }
+        
+        canvas {
             max-width: 100%;
             height: auto;
-            display: block;
+            background-color: #000;
         }
-
-        .instructions {
-            background: #f8f9fa;
-            border-left: 4px solid #667eea;
-            padding: 20px;
+        
+        .prediction {
+            font-size: 48px;
+            font-weight: bold;
+            color: #4CAF50;
             margin: 20px 0;
-            border-radius: 0 10px 10px 0;
-            text-align: left;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-
-        .instructions h3 {
-            color: #667eea;
+        
+        .info {
+            background-color: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .info h2 {
+            color: #4CAF50;
             margin-top: 0;
         }
-
-        .instructions ul {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-
-        .instructions li {
-            margin: 5px 0;
-        }
-
+        
         .status {
-            background: #e8f5e8;
-            border: 2px solid #4caf50;
-            border-radius: 10px;
-            padding: 15px;
-            margin: 20px 0;
-            color: #2e7d32;
-            font-weight: bold;
+            margin: 10px 0;
+            font-size: 14px;
         }
-
-        .error {
-            background: #ffebee;
-            border: 2px solid #f44336;
-            border-radius: 10px;
-            padding: 15px;
-            margin: 20px 0;
-            color: #c62828;
-            font-weight: bold;
+        
+        .loading {
+            animation: pulse 1.5s infinite;
         }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 20px;
-                margin: 10px;
-            }
-            
-            h1 {
-                font-size: 2em;
-            }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+        
+        .letter-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 5px;
+            margin: 10px 0;
+            max-width: 300px;
+            margin: 10px auto;
+        }
+        
+        .letter-box {
+            background-color: #333;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .letter-box.detected {
+            background-color: #4CAF50;
+            transform: scale(1.1);
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🤟 ASL to Text Translator</h1>
+        <h1>ASL Sign Language Detector</h1>
+        <p class="status" id="status">Loading MediaPipe...</p>
         
-        <div class="status">
-            ✅ System Ready - Hold ASL signs for 5 seconds to type
-        </div>
-
         <div class="video-container">
-            <img id="video-feed" src="{{ url_for('video_feed') }}" alt="ASL Video Feed">
+            <video id="video"></video>
+            <canvas id="canvas"></canvas>
         </div>
-
-        <div class="instructions">
-            <h3>📝 How to Use:</h3>
-            <ul>
-                <li><strong>Sign Detection:</strong> Make ASL signs in front of your camera</li>
-                <li><strong>Hold Time:</strong> Hold each sign steady for 5 seconds to register</li>
-                <li><strong>Special Commands:</strong>
-                    <ul>
-                        <li>Sign "space" - Adds a space between words</li>
-                        <li>Sign "del" - Deletes the last character</li>
-                    </ul>
-                </li>
-                <li><strong>Text Display:</strong> Your typed sentence appears at the top of the video</li>
-                <li><strong>Reset:</strong> Refresh the page to clear the sentence</li>
+        
+        <div class="prediction" id="prediction">-</div>
+        
+        <button id="startBtn" disabled>Start Camera</button>
+        <button id="stopBtn" disabled>Stop Camera</button>
+        
+        <div class="info">
+            <h2>Demo ASL Classifier</h2>
+            <p>This is a demonstration using a simple classifier. For a real implementation, you would need to:</p>
+            <ul style="text-align: left;">
+                <li>Convert your Python model to TensorFlow.js format</li>
+                <li>Load the converted model using tf.loadLayersModel()</li>
+                <li>Process the hand landmarks the same way as your Python code</li>
             </ul>
-        </div>
-
-        <div class="instructions">
-            <h3>🔧 Troubleshooting:</h3>
-            <ul>
-                <li>Make sure your camera is working and properly connected</li>
-                <li>Ensure good lighting for better hand detection</li>
-                <li>Keep your hand clearly visible within the camera frame</li>
-                <li>If the video doesn't load, check browser permissions for camera access</li>
-            </ul>
+            <p>Currently, this demo recognizes basic hand positions and maps them to letters.</p>
+            
+            <h3>Detected Letters:</h3>
+            <div class="letter-grid" id="letterGrid"></div>
         </div>
     </div>
 
     <script>
-        // Add error handling for the video feed
-        document.getElementById('video-feed').onerror = function() {
-            this.style.display = 'none';
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error';
-            errorDiv.innerHTML = '❌ Camera Error: Unable to access video feed. Please check camera permissions and refresh.';
-            document.querySelector('.video-container').appendChild(errorDiv);
-        };
-
-        // Refresh the page every 30 minutes to prevent memory issues
-        setTimeout(() => {
-            window.location.reload();
-        }, 30 * 60 * 1000);
+        let camera = null;
+        let isRunning = false;
+        const videoElement = document.getElementById('video');
+        const canvasElement = document.getElementById('canvas');
+        const ctx = canvasElement.getContext('2d');
+        const predictionElement = document.getElementById('prediction');
+        const statusElement = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const letterGrid = document.getElementById('letterGrid');
+        
+        // Create letter grid
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+        letters.forEach(letter => {
+            const div = document.createElement('div');
+            div.className = 'letter-box';
+            div.id = `letter-${letter}`;
+            div.textContent = letter;
+            letterGrid.appendChild(div);
+        });
+        
+        // Initialize MediaPipe Hands
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
+            }
+        });
+        
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        
+        // Simple demo classifier
+        function classifyHandLandmarks(landmarks) {
+            if (!landmarks || landmarks.length === 0) return '-';
+            
+            // Extract normalized coordinates
+            const x_ = landmarks.map(l => l.x);
+            const y_ = landmarks.map(l => l.y);
+            
+            const minX = Math.min(...x_);
+            const minY = Math.min(...y_);
+            
+            // Normalize landmarks
+            const normalizedLandmarks = [];
+            landmarks.forEach(landmark => {
+                normalizedLandmarks.push(landmark.x - minX);
+                normalizedLandmarks.push(landmark.y - minY);
+            });
+            
+            // Simple demo classification based on hand pose
+            // In a real implementation, you would use your trained model here
+            
+            // Thumb position relative to other fingers
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const middleTip = landmarks[12];
+            const ringTip = landmarks[16];
+            const pinkyTip = landmarks[20];
+            
+            // Simple heuristics for demo purposes
+            const thumbUp = thumbTip.y < landmarks[3].y;
+            const indexUp = indexTip.y < landmarks[6].y;
+            const middleUp = middleTip.y < landmarks[10].y;
+            const ringUp = ringTip.y < landmarks[14].y;
+            const pinkyUp = pinkyTip.y < landmarks[18].y;
+            
+            // Count raised fingers
+            const raisedFingers = [thumbUp, indexUp, middleUp, ringUp, pinkyUp].filter(f => f).length;
+            
+            // Demo classification logic
+            if (raisedFingers === 0) return 'A';
+            if (raisedFingers === 1 && indexUp) return 'D';
+            if (raisedFingers === 2 && indexUp && middleUp) return 'V';
+            if (raisedFingers === 3 && !thumbUp && !pinkyUp) return 'W';
+            if (raisedFingers === 5) return '5';
+            if (thumbUp && !indexUp && !middleUp && !ringUp && !pinkyUp) return 'B';
+            
+            // More sophisticated classification would go here
+            return 'X';
+        }
+        
+        hands.onResults((results) => {
+            ctx.save();
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Draw hand connections
+                drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+                drawLandmarks(ctx, landmarks, {color: '#FF0000', lineWidth: 1, radius: 3});
+                
+                // Get bounding box
+                const x_ = landmarks.map(l => l.x);
+                const y_ = landmarks.map(l => l.y);
+                
+                const minX = Math.min(...x_) * canvasElement.width;
+                const minY = Math.min(...y_) * canvasElement.height;
+                const maxX = Math.max(...x_) * canvasElement.width;
+                const maxY = Math.max(...y_) * canvasElement.height;
+                
+                // Draw bounding box
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(minX - 10, minY - 10, maxX - minX + 20, maxY - minY + 20);
+                
+                // Classify and display prediction
+                const prediction = classifyHandLandmarks(landmarks);
+                predictionElement.textContent = prediction;
+                
+                // Update letter grid
+                document.querySelectorAll('.letter-box').forEach(box => {
+                    box.classList.remove('detected');
+                });
+                const detectedBox = document.getElementById(`letter-${prediction}`);
+                if (detectedBox) {
+                    detectedBox.classList.add('detected');
+                }
+                
+                // Draw prediction on canvas
+                ctx.font = '48px Arial';
+                ctx.fillStyle = '#000000';
+                ctx.fillText(prediction, minX, minY - 20);
+            } else {
+                predictionElement.textContent = '-';
+                document.querySelectorAll('.letter-box').forEach(box => {
+                    box.classList.remove('detected');
+                });
+            }
+            
+            ctx.restore();
+        });
+        
+        async function startCamera() {
+            if (isRunning) return;
+            
+            isRunning = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            statusElement.textContent = 'Camera active';
+            
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({image: videoElement});
+                },
+                width: 640,
+                height: 480
+            });
+            
+            canvasElement.width = 640;
+            canvasElement.height = 480;
+            
+            await camera.start();
+        }
+        
+        function stopCamera() {
+            if (!isRunning) return;
+            
+            isRunning = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            statusElement.textContent = 'Camera stopped';
+            
+            if (camera) {
+                camera.stop();
+                camera = null;
+            }
+            
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            predictionElement.textContent = '-';
+            document.querySelectorAll('.letter-box').forEach(box => {
+                box.classList.remove('detected');
+            });
+        }
+        
+        // Event listeners
+        startBtn.addEventListener('click', startCamera);
+        stopBtn.addEventListener('click', stopCamera);
+        
+        // Enable start button when ready
+        statusElement.textContent = 'Ready! Click "Start Camera" to begin.';
+        startBtn.disabled = false;
     </script>
 </body>
 </html>
