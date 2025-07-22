@@ -19,19 +19,19 @@
             align-items: center;
             min-height: 100vh;
         }
-        
+
         .container {
             max-width: 800px;
             width: 100%;
             padding: 20px;
             text-align: center;
         }
-        
+
         h1 {
             color: #4CAF50;
             margin-bottom: 10px;
         }
-        
+
         .video-container {
             position: relative;
             display: inline-block;
@@ -40,59 +40,67 @@
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }
-        
+
         video {
             display: none;
-            /* Flip the source video element */
             transform: scaleX(-1);
         }
-        
+
         canvas {
             max-width: 100%;
             height: auto;
             background-color: #000;
-            /* Flip the canvas to create a mirror effect */
             transform: scaleX(-1);
         }
-        
+
         .prediction {
             font-size: 48px;
             font-weight: bold;
-            color: #4CAF50;
+            color: #FFFFFF; /* Changed to white for better contrast with background */
             margin: 20px 0;
             height: 60px;
             display: flex;
             align-items: center;
             justify-content: center;
-        }
-        
-        .info {
-            background-color: #2a2a2a;
-            padding: 20px;
             border-radius: 10px;
-            margin: 20px 0;
+            position: relative;
         }
-        
-        .info h2 {
-            color: #4CAF50;
-            margin-top: 0;
+
+        /* NEW: Visual timer bar */
+        .prediction::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 5px;
+            width: 0;
+            background-color: #ffc107;
+            transition: width 3s linear;
         }
-        
-        .status {
-            margin: 10px 0;
-            font-size: 14px;
+
+        .prediction.confirming::before {
+            width: 100%;
         }
-        
-        .loading {
-            animation: pulse 1.5s infinite;
+
+        /* NEW: Sentence display */
+        .sentence-display {
+            background-color: #2a2a2a;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0 20px 0;
+            min-height: 40px;
+            font-size: 28px;
+            letter-spacing: 2px;
+            word-break: break-all;
+            border: 2px solid #4CAF50;
         }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
+
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
         }
-        
+
         button {
             background-color: #4CAF50;
             color: white;
@@ -101,10 +109,9 @@
             font-size: 16px;
             border-radius: 5px;
             cursor: pointer;
-            margin: 10px;
             transition: background-color 0.3s;
         }
-        
+
         button:hover {
             background-color: #45a049;
         }
@@ -114,15 +121,22 @@
             cursor: not-allowed;
         }
         
+        /* NEW: Clear button style */
+        #clearBtn {
+            background-color: #f44336; /* Red color for clear */
+        }
+
+        #clearBtn:hover {
+            background-color: #d32f2f;
+        }
+
         .letter-grid {
             display: grid;
-            grid-template-columns: repeat(6, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
             gap: 5px;
             margin: 10px 0;
-            max-width: 300px;
-            margin: 10px auto;
         }
-        
+
         .letter-box {
             background-color: #333;
             padding: 10px;
@@ -130,7 +144,7 @@
             font-weight: bold;
             transition: all 0.3s;
         }
-        
+
         .letter-box.detected {
             background-color: #4CAF50;
             transform: scale(1.1);
@@ -148,19 +162,22 @@
         </div>
         
         <div class="prediction" id="prediction">-</div>
+
+        <!-- NEW: Sentence Display Area -->
+        <h3>Your Word:</h3>
+        <div class="sentence-display" id="sentenceDisplay"></div>
         
-        <button id="startBtn" disabled>Start Camera</button>
-        <button id="stopBtn" disabled>Stop Camera</button>
+        <!-- Updated: Buttons are now grouped -->
+        <div class="button-group">
+            <button id="startBtn" disabled>Start</button>
+            <button id="stopBtn" disabled>Stop</button>
+            <button id="clearBtn">Clear</button> <!-- NEW: Clear Button -->
+        </div>
         
         <div class="info">
-            <h2>Demo ASL Classifier</h2>
-            <p>This is a demonstration using a simple classifier. For a real implementation, you would need to:</p>
-            <ul style="text-align: left;">
-                <li>Convert your Python model to TensorFlow.js format</li>
-                <li>Load the converted model using tf.loadLayersModel()</li>
-                <li>Process the hand landmarks the same way as your Python code</li>
-            </ul>
-            <p>Currently, this demo recognizes basic hand positions and maps them to letters.</p>
+            <h2>How it Works</h2>
+            <p>This demo now captures letters to form words. Hold a sign steady for <strong>3 seconds</strong> to add it to the "Your Word" box above.</p>
+            <p>It recognizes all letters (A-Z), plus 'space', and 'del' (to delete the last character).</p>
             
             <h3>Detected Letters:</h3>
             <div class="letter-grid" id="letterGrid"></div>
@@ -168,12 +185,17 @@
     </div>
 
     <script>
-        // Configuration - UPDATE THIS WITH YOUR API URL
-        // If using Gradio on Colab: https://[random-string].gradio.live/api/predict
-        // If using Hugging Face: https://[username]-[space-name].hf.space/api/predict
-        // If using ngrok: https://[random-string].ngrok.io/predict
+        // Configuration
         const API_URL = 'https://d74eea74f715.ngrok-free.app/predict';
         
+        // --- NEW: State variables for word building ---
+        let confirmationTimer = null;
+        let lastTrackedPrediction = '-';
+        let currentSentence = '';
+        let lastAddedLetter = '';
+        const CONFIRMATION_TIME_MS = 3000; // 3 seconds
+
+        // --- Standard Elements ---
         let camera = null;
         let isRunning = false;
         const videoElement = document.getElementById('video');
@@ -184,8 +206,11 @@
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const letterGrid = document.getElementById('letterGrid');
+
+        // --- NEW: Get new elements ---
+        const sentenceDisplay = document.getElementById('sentenceDisplay');
+        const clearBtn = document.getElementById('clearBtn');
         
-        // Create letter grid with all 29 classes
         const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
                         'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 
                         'del', 'nothing', 'space'];
@@ -197,11 +222,8 @@
             letterGrid.appendChild(div);
         });
         
-        // Initialize MediaPipe Hands
         const hands = new Hands({
-            locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
-            }
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
         });
         
         hands.setOptions({
@@ -211,18 +233,12 @@
             minTrackingConfidence: 0.5
         });
         
-        // Classifier that uses your real model via API
         async function classifyHandLandmarks(landmarks) {
             if (!landmarks || landmarks.length === 0) return '-';
-            
-            // Extract normalized coordinates (same as your Python code)
             const x_ = landmarks.map(l => l.x);
             const y_ = landmarks.map(l => l.y);
-            
             const minX = Math.min(...x_);
             const minY = Math.min(...y_);
-            
-            // Normalize landmarks
             const normalizedLandmarks = [];
             landmarks.forEach(landmark => {
                 normalizedLandmarks.push(landmark.x - minX);
@@ -230,50 +246,39 @@
             });
             
             try {
-                // Call your Python model API
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        landmarks: normalizedLandmarks
-                    })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ landmarks: normalizedLandmarks })
                 });
-                
                 const result = await response.json();
-                
-                if (result.success) {
-                    return result.prediction;
-                } else {
-                    console.error('Prediction error:', result.error);
-                    return 'Error';
-                }
+                return result.success ? result.prediction : 'Error';
             } catch (error) {
                 console.error('API call failed:', error);
-                // Fallback to simple demo classifier if API is down
-                return demoClassifier(landmarks);
+                return 'Error';
             }
         }
         
-        // Backup demo classifier (in case API is offline)
-        function demoClassifier(landmarks) {
-            const thumbTip = landmarks[4];
-            const indexTip = landmarks[8];
-            const middleTip = landmarks[12];
-            
-            const thumbUp = thumbTip.y < landmarks[3].y;
-            const indexUp = indexTip.y < landmarks[6].y;
-            const middleUp = middleTip.y < landmarks[10].y;
-            
-            const raisedFingers = [thumbUp, indexUp, middleUp].filter(f => f).length;
-            
-            if (raisedFingers === 0) return 'A';
-            if (raisedFingers === 1 && indexUp) return 'D';
-            if (raisedFingers === 2) return 'V';
-            return 'X';
+        // --- NEW: Function to add confirmed letter to the sentence ---
+        function addLetterToSentence(letter) {
+            if (letter === 'space') {
+                currentSentence += ' ';
+            } else if (letter === 'del') {
+                currentSentence = currentSentence.slice(0, -1);
+            } else if (letter !== 'nothing') {
+                currentSentence += letter;
+            }
+            sentenceDisplay.textContent = currentSentence;
+            lastAddedLetter = letter; // Prevent re-adding the same letter immediately
         }
-        
+
+        // --- NEW: Function to reset the confirmation timer and visuals ---
+        function resetConfirmation() {
+            clearTimeout(confirmationTimer);
+            confirmationTimer = null;
+            predictionElement.classList.remove('confirming');
+        }
+
         hands.onResults((results) => {
             ctx.save();
             ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -281,80 +286,70 @@
             
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
-                
-                // Draw hand connections
                 drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
                 drawLandmarks(ctx, landmarks, {color: '#FF0000', lineWidth: 1, radius: 3});
                 
-                // Get bounding box
-                const x_ = landmarks.map(l => l.x);
-                const y_ = landmarks.map(l => l.y);
-                
-                const minX = Math.min(...x_) * canvasElement.width;
-                const minY = Math.min(...y_) * canvasElement.height;
-                const maxX = Math.max(...x_) * canvasElement.width;
-                const maxY = Math.max(...y_) * canvasElement.height;
-                
-                // Draw bounding box
-                ctx.strokeStyle = '#000000';
-                ctx.lineWidth = 4;
-                ctx.strokeRect(minX - 10, minY - 10, maxX - minX + 20, maxY - minY + 20);
-                
-                // Classify and display prediction
                 classifyHandLandmarks(landmarks).then(prediction => {
                     predictionElement.textContent = prediction;
                     
-                    // Update letter grid - now with all 29 classes
-                    document.querySelectorAll('.letter-box').forEach(box => {
-                        box.classList.remove('detected');
-                    });
+                    document.querySelectorAll('.letter-box').forEach(box => box.classList.remove('detected'));
                     if (prediction !== '-' && prediction !== 'Error') {
                         const detectedBox = document.getElementById(`letter-${prediction}`);
-                        if (detectedBox) {
-                            detectedBox.classList.add('detected');
-                        }
+                        if (detectedBox) detectedBox.classList.add('detected');
                     }
                     
-                    // Draw prediction on canvas
-                    ctx.font = '48px Arial';
-                    ctx.fillStyle = '#000000';
-                    ctx.fillText(prediction, minX, minY - 20);
+                    // --- CORE CONFIRMATION LOGIC ---
+                    if (prediction === '-' || prediction === 'Error' || prediction === 'nothing') {
+                        resetConfirmation();
+                        lastTrackedPrediction = prediction;
+                        lastAddedLetter = ''; // Allow re-adding a letter after a break
+                        return;
+                    }
+
+                    if (prediction !== lastTrackedPrediction) {
+                        resetConfirmation();
+                        lastTrackedPrediction = prediction;
+
+                        // Start a new timer only if the detected letter is not the one we just added
+                        if (prediction !== lastAddedLetter) {
+                            predictionElement.classList.add('confirming');
+                            confirmationTimer = setTimeout(() => {
+                                addLetterToSentence(lastTrackedPrediction);
+                                resetConfirmation();
+                            }, CONFIRMATION_TIME_MS);
+                        }
+                    }
                 });
             } else {
+                // No hand detected
                 predictionElement.textContent = '-';
-                document.querySelectorAll('.letter-box').forEach(box => {
-                    box.classList.remove('detected');
-                });
+                document.querySelectorAll('.letter-box').forEach(box => box.classList.remove('detected'));
+                resetConfirmation();
+                lastTrackedPrediction = '-';
+                lastAddedLetter = ''; // Allow re-adding a letter after a break
             }
-            
             ctx.restore();
         });
         
         async function startCamera() {
             if (isRunning) return;
-            
             isRunning = true;
             startBtn.disabled = true;
             stopBtn.disabled = false;
             statusElement.textContent = 'Camera active';
             
             camera = new Camera(videoElement, {
-                onFrame: async () => {
-                    await hands.send({image: videoElement});
-                },
+                onFrame: async () => await hands.send({image: videoElement}),
                 width: 640,
                 height: 480
             });
-            
             canvasElement.width = 640;
             canvasElement.height = 480;
-            
             await camera.start();
         }
         
         function stopCamera() {
             if (!isRunning) return;
-            
             isRunning = false;
             startBtn.disabled = false;
             stopBtn.disabled = true;
@@ -365,22 +360,28 @@
                 camera = null;
             }
             
+            resetConfirmation();
             ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             predictionElement.textContent = '-';
-            document.querySelectorAll('.letter-box').forEach(box => {
-                box.classList.remove('detected');
-            });
+            document.querySelectorAll('.letter-box').forEach(box => box.classList.remove('detected'));
         }
         
-        // Event listeners
+        // --- NEW: Clear Button functionality ---
+        function clearSentence() {
+            currentSentence = '';
+            sentenceDisplay.textContent = '';
+            lastAddedLetter = '';
+            resetConfirmation();
+        }
+
+        // --- Event listeners ---
         startBtn.addEventListener('click', startCamera);
         stopBtn.addEventListener('click', stopCamera);
+        clearBtn.addEventListener('click', clearSentence); // NEW
         
-        // Enable start button when ready
-        statusElement.textContent = 'Ready! Click "Start Camera" to begin.';
+        statusElement.textContent = 'Ready! Click "Start" to begin.';
         startBtn.disabled = false;
         
-        // Check if API URL is configured
         if (API_URL === 'https://d74eea74f715.ngrok-free.app/predict') {
             statusElement.textContent = 'Please configure API_URL in the code!';
             statusElement.style.color = '#ff6b6b';
