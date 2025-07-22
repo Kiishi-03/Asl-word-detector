@@ -43,12 +43,16 @@
         
         video {
             display: none;
+            /* Flip the source video element */
+            transform: scaleX(-1);
         }
         
         canvas {
             max-width: 100%;
             height: auto;
             background-color: #000;
+            /* Flip the canvas to create a mirror effect */
+            transform: scaleX(-1);
         }
         
         .prediction {
