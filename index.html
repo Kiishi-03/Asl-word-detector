@@ -11,7 +11,7 @@
         body {
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 0;
+            padding: 20px;
             background-color: #1a1a1a;
             color: white;
             display: flex;
@@ -35,10 +35,11 @@
         .video-container {
             position: relative;
             display: inline-block;
-            margin: 20px 0;
+            margin: 10px 0;
             border-radius: 10px;
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            background-color: #000;
         }
         
         video {
@@ -48,25 +49,46 @@
         canvas {
             max-width: 100%;
             height: auto;
-            background-color: #000;
+            /* FIX: Flips the video feed to act like a mirror */
+            transform: scaleX(-1);
         }
         
         .prediction {
             font-size: 48px;
             font-weight: bold;
             color: #4CAF50;
-            margin: 20px 0;
+            margin: 10px 0;
             height: 60px;
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
         }
         
+        /* FEATURE: Styles for the timer bar */
+        .timer-bar-container {
+            width: 80%;
+            height: 10px;
+            background-color: #333;
+            border-radius: 5px;
+            margin: 0 auto;
+            position: absolute;
+            bottom: -5px;
+            overflow: hidden;
+        }
+
+        #timerBar {
+            width: 0%;
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.1s linear;
+        }
+
         .info {
             background-color: #2a2a2a;
             padding: 20px;
             border-radius: 10px;
-            margin: 20px 0;
+            margin-top: 20px;
         }
         
         .info h2 {
@@ -74,19 +96,26 @@
             margin-top: 0;
         }
         
+        /* FEATURE: Styles for the word/sentence display */
+        .word-display-container {
+            background-color: #000;
+            border: 2px solid #4CAF50;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            min-height: 50px;
+            font-size: 28px;
+            letter-spacing: 2px;
+            text-align: left;
+        }
+
+        #wordDisplay {
+            word-wrap: break-word;
+        }
+
         .status {
             margin: 10px 0;
             font-size: 14px;
-        }
-        
-        .loading {
-            animation: pulse 1.5s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
         }
         
         button {
@@ -97,7 +126,7 @@
             font-size: 16px;
             border-radius: 5px;
             cursor: pointer;
-            margin: 10px;
+            margin: 5px;
             transition: background-color 0.3s;
         }
         
@@ -109,28 +138,15 @@
             background-color: #666;
             cursor: not-allowed;
         }
-        
-        .letter-grid {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 5px;
-            margin: 10px 0;
-            max-width: 300px;
-            margin: 10px auto;
+
+        /* FEATURE: New style for the clear button */
+        .btn-danger {
+            background-color: #f44336;
+        }
+        .btn-danger:hover {
+            background-color: #d32f2f;
         }
         
-        .letter-box {
-            background-color: #333;
-            padding: 10px;
-            border-radius: 5px;
-            font-weight: bold;
-            transition: all 0.3s;
-        }
-        
-        .letter-box.detected {
-            background-color: #4CAF50;
-            transform: scale(1.1);
-        }
     </style>
 </head>
 <body>
@@ -143,35 +159,37 @@
             <canvas id="canvas"></canvas>
         </div>
         
-        <div class="prediction" id="prediction">-</div>
+        <div class="prediction" id="prediction">
+            -
+            <!-- FEATURE: Visual timer bar -->
+            <div class="timer-bar-container">
+                <div id="timerBar"></div>
+            </div>
+        </div>
         
+        <!-- FEATURE: Sentence display box -->
+        <h2>Your Sentence</h2>
+        <div class="word-display-container">
+            <span id="wordDisplay"></span><span class="cursor">|</span>
+        </div>
+
         <button id="startBtn" disabled>Start Camera</button>
         <button id="stopBtn" disabled>Stop Camera</button>
+        <!-- FEATURE: Clear word button -->
+        <button id="clearBtn" class="btn-danger">Clear Word</button>
         
         <div class="info">
-            <h2>Demo ASL Classifier</h2>
-            <p>This is a demonstration using a simple classifier. For a real implementation, you would need to:</p>
-            <ul style="text-align: left;">
-                <li>Convert your Python model to TensorFlow.js format</li>
-                <li>Load the converted model using tf.loadLayersModel()</li>
-                <li>Process the hand landmarks the same way as your Python code</li>
-            </ul>
-            <p>Currently, this demo recognizes basic hand positions and maps them to letters.</p>
-            
-            <h3>Detected Letters:</h3>
-            <div class="letter-grid" id="letterGrid"></div>
+            <h2>How to Use</h2>
+            <p>Hold a sign for 3 seconds to add it to the sentence above. Use the 'del' sign to backspace and 'space' to add a space.</p>
         </div>
     </div>
 
     <script>
-        // Configuration - UPDATE THIS WITH YOUR API URL
-        // If using Gradio on Colab: https://[random-string].gradio.live/api/predict
-        // If using Hugging Face: https://[username]-[space-name].hf.space/api/predict
-        // If using ngrok: https://[random-string].ngrok.io/predict
-        const API_URL = 'https://be48e2dc04ea.ngrok-free.app';
-        
-        let camera = null;
-        let isRunning = false;
+        // --- IMPORTANT CONFIGURATION ---
+        // Paste your new ngrok or Gradio URL here!
+        const API_URL = 'https://be48e2dc04ea.ngrok-free.app'; 
+        // --------------------------------
+
         const videoElement = document.getElementById('video');
         const canvasElement = document.getElementById('canvas');
         const ctx = canvasElement.getContext('2d');
@@ -179,25 +197,25 @@
         const statusElement = document.getElementById('status');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const letterGrid = document.getElementById('letterGrid');
         
-        // Create letter grid with all 29 classes
-        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
-                        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 
-                        'del', 'nothing', 'space'];
-        letters.forEach(letter => {
-            const div = document.createElement('div');
-            div.className = 'letter-box';
-            div.id = `letter-${letter}`;
-            div.textContent = letter;
-            letterGrid.appendChild(div);
-        });
+        // --- FEATURE: Word Building ---
+        const clearBtn = document.getElementById('clearBtn');
+        const wordDisplay = document.getElementById('wordDisplay');
+        const timerBar = document.getElementById('timerBar');
         
+        let camera = null;
+        let isRunning = false;
+        
+        // --- FEATURE: State for word building logic ---
+        let currentSentence = "";
+        let lastSeenLetter = null;
+        let letterHoldTimer = null;
+        let holdStartTime = null;
+        const HOLD_DURATION = 3000; // 3 seconds
+
         // Initialize MediaPipe Hands
         const hands = new Hands({
-            locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
-            }
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
         });
         
         hands.setOptions({
@@ -207,18 +225,13 @@
             minTrackingConfidence: 0.5
         });
         
-        // Classifier that uses your real model via API
+        // API Classifier
         async function classifyHandLandmarks(landmarks) {
             if (!landmarks || landmarks.length === 0) return '-';
-            
-            // Extract normalized coordinates (same as your Python code)
             const x_ = landmarks.map(l => l.x);
             const y_ = landmarks.map(l => l.y);
-            
             const minX = Math.min(...x_);
             const minY = Math.min(...y_);
-            
-            // Normalize landmarks
             const normalizedLandmarks = [];
             landmarks.forEach(landmark => {
                 normalizedLandmarks.push(landmark.x - minX);
@@ -226,50 +239,41 @@
             });
             
             try {
-                // Call your Python model API
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        landmarks: normalizedLandmarks
-                    })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ landmarks: normalizedLandmarks })
                 });
-                
                 const result = await response.json();
-                
-                if (result.success) {
-                    return result.prediction;
-                } else {
-                    console.error('Prediction error:', result.error);
-                    return 'Error';
-                }
+                return result.success ? result.prediction : 'Error';
             } catch (error) {
                 console.error('API call failed:', error);
-                // Fallback to simple demo classifier if API is down
-                return demoClassifier(landmarks);
+                return 'Error'; // Return Error if API fails
             }
         }
-        
-        // Backup demo classifier (in case API is offline)
-        function demoClassifier(landmarks) {
-            const thumbTip = landmarks[4];
-            const indexTip = landmarks[8];
-            const middleTip = landmarks[12];
-            
-            const thumbUp = thumbTip.y < landmarks[3].y;
-            const indexUp = indexTip.y < landmarks[6].y;
-            const middleUp = middleTip.y < landmarks[10].y;
-            
-            const raisedFingers = [thumbUp, indexUp, middleUp].filter(f => f).length;
-            
-            if (raisedFingers === 0) return 'A';
-            if (raisedFingers === 1 && indexUp) return 'D';
-            if (raisedFingers === 2) return 'V';
-            return 'X';
+
+        // --- FEATURE: Function to add the letter to our sentence ---
+        function addLetterToSentence(letter) {
+            if (letter === 'del') {
+                currentSentence = currentSentence.slice(0, -1);
+            } else if (letter === 'space') {
+                currentSentence += " ";
+            } else if (letter && letter !== 'nothing' && letter !== 'Error') {
+                currentSentence += letter;
+            }
+            wordDisplay.textContent = currentSentence;
+        }
+
+        // --- FEATURE: Function to reset the letter holding state ---
+        function resetHoldState() {
+            clearTimeout(letterHoldTimer);
+            letterHoldTimer = null;
+            lastSeenLetter = null;
+            holdStartTime = null;
+            timerBar.style.width = '0%';
         }
         
+        // Main loop that runs on every frame
         hands.onResults((results) => {
             ctx.save();
             ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -277,109 +281,104 @@
             
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
-                
-                // Draw hand connections
                 drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
                 drawLandmarks(ctx, landmarks, {color: '#FF0000', lineWidth: 1, radius: 3});
                 
-                // Get bounding box
-                const x_ = landmarks.map(l => l.x);
-                const y_ = landmarks.map(l => l.y);
-                
-                const minX = Math.min(...x_) * canvasElement.width;
-                const minY = Math.min(...y_) * canvasElement.height;
-                const maxX = Math.max(...x_) * canvasElement.width;
-                const maxY = Math.max(...y_) * canvasElement.height;
-                
-                // Draw bounding box
-                ctx.strokeStyle = '#000000';
-                ctx.lineWidth = 4;
-                ctx.strokeRect(minX - 10, minY - 10, maxX - minX + 20, maxY - minY + 20);
-                
-                // Classify and display prediction
                 classifyHandLandmarks(landmarks).then(prediction => {
-                    predictionElement.textContent = prediction;
+                    // Display current prediction
+                    predictionElement.firstChild.textContent = prediction;
                     
-                    // Update letter grid - now with all 29 classes
-                    document.querySelectorAll('.letter-box').forEach(box => {
-                        box.classList.remove('detected');
-                    });
-                    if (prediction !== '-' && prediction !== 'Error') {
-                        const detectedBox = document.getElementById(`letter-${prediction}`);
-                        if (detectedBox) {
-                            detectedBox.classList.add('detected');
-                        }
+                    // --- FEATURE: Word Building Logic ---
+                    const validPrediction = prediction && prediction !== '-' && prediction !== 'nothing' && prediction !== 'Error';
+
+                    if (validPrediction && prediction === lastSeenLetter) {
+                        // User is still holding the same letter, update timer bar
+                        const elapsedTime = Date.now() - holdStartTime;
+                        const progress = Math.min(100, (elapsedTime / HOLD_DURATION) * 100);
+                        timerBar.style.width = `${progress}%`;
+                    } else if (validPrediction && prediction !== lastSeenLetter) {
+                        // User changed to a new letter, reset everything
+                        resetHoldState();
+                        lastSeenLetter = prediction;
+                        holdStartTime = Date.now();
+                        
+                        // Set a timer to add the letter after HOLD_DURATION
+                        letterHoldTimer = setTimeout(() => {
+                            addLetterToSentence(lastSeenLetter);
+                            resetHoldState(); // Reset after adding letter to prevent repeats
+                        }, HOLD_DURATION);
+
+                    } else if (!validPrediction) {
+                        // No valid hand/letter detected, reset
+                        resetHoldState();
                     }
-                    
-                    // Draw prediction on canvas
-                    ctx.font = '48px Arial';
-                    ctx.fillStyle = '#000000';
-                    ctx.fillText(prediction, minX, minY - 20);
                 });
+
             } else {
-                predictionElement.textContent = '-';
-                document.querySelectorAll('.letter-box').forEach(box => {
-                    box.classList.remove('detected');
-                });
+                // No hand detected, reset everything
+                predictionElement.firstChild.textContent = '-';
+                resetHoldState();
             }
             
             ctx.restore();
         });
         
+        // Camera controls
         async function startCamera() {
             if (isRunning) return;
-            
             isRunning = true;
             startBtn.disabled = true;
             stopBtn.disabled = false;
-            statusElement.textContent = 'Camera active';
+            clearBtn.disabled = false;
+            statusElement.textContent = 'Camera active. Hold a sign for 3 seconds.';
             
             camera = new Camera(videoElement, {
-                onFrame: async () => {
-                    await hands.send({image: videoElement});
-                },
+                onFrame: async () => await hands.send({image: videoElement}),
                 width: 640,
                 height: 480
             });
             
             canvasElement.width = 640;
             canvasElement.height = 480;
-            
             await camera.start();
         }
         
         function stopCamera() {
             if (!isRunning) return;
-            
             isRunning = false;
             startBtn.disabled = false;
             stopBtn.disabled = true;
-            statusElement.textContent = 'Camera stopped';
+            clearBtn.disabled = true;
+            statusElement.textContent = 'Camera stopped.';
             
             if (camera) {
                 camera.stop();
                 camera = null;
             }
             
+            resetHoldState();
             ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            predictionElement.textContent = '-';
-            document.querySelectorAll('.letter-box').forEach(box => {
-                box.classList.remove('detected');
-            });
+            predictionElement.firstChild.textContent = '-';
         }
-        
+
         // Event listeners
         startBtn.addEventListener('click', startCamera);
         stopBtn.addEventListener('click', stopCamera);
+        clearBtn.addEventListener('click', () => {
+            currentSentence = "";
+            wordDisplay.textContent = "";
+            resetHoldState();
+        });
         
-        // Enable start button when ready
+        // Initial state
         statusElement.textContent = 'Ready! Click "Start Camera" to begin.';
         startBtn.disabled = false;
+        clearBtn.disabled = true;
         
-        // Check if API URL is configured
         if (API_URL === 'https://be48e2dc04ea.ngrok-free.app') {
-            statusElement.textContent = 'Please configure API_URL in the code!';
+            statusElement.textContent = 'CRITICAL: Please configure your API_URL in the code!';
             statusElement.style.color = '#ff6b6b';
+            startBtn.disabled = true;
         }
     </script>
 </body>
