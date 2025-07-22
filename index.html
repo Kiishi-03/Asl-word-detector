@@ -187,7 +187,7 @@
     <script>
         // --- IMPORTANT CONFIGURATION ---
         // Paste your new ngrok or Gradio URL here!
-        const API_URL = 'https://be48e2dc04ea.ngrok-free.app'; 
+        const API_URL = 'https://be48e2dc04ea.ngrok-free.app/predict'; 
         // --------------------------------
 
         const videoElement = document.getElementById('video');
@@ -375,7 +375,7 @@
         startBtn.disabled = false;
         clearBtn.disabled = true;
         
-        if (API_URL === 'https://be48e2dc04ea.ngrok-free.app') {
+        if (API_URL === 'https://be48e2dc04ea.ngrok-free.app/predict') {
             statusElement.textContent = 'CRITICAL: Please configure your API_URL in the code!';
             statusElement.style.color = '#ff6b6b';
             startBtn.disabled = true;
